@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0f100d">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>FINN</title>
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="icon" href="/static/icon.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+<div id="app">
+  <header class="top">
+    <a href="#/" class="brand">FINN</a>
+    <span class="asof" id="asof"></span>
+    <button class="icon-btn" id="open-settings" aria-label="Settings">
+      <svg viewBox="0 0 24 24" width="20" height="20"><path d="M4 7h10M18 7h2M4 17h2M10 17h10" stroke="currentColor" stroke-width="1.6" fill="none" stroke-linecap="round"/><circle cx="16" cy="7" r="2" stroke="currentColor" stroke-width="1.6" fill="none"/><circle cx="8" cy="17" r="2" stroke="currentColor" stroke-width="1.6" fill="none"/></svg>
+    </button>
+  </header>
+  <div id="banner"></div>
+  <main id="view"></main>
+  <nav class="tabs">
+    <a href="#/" data-tab="today">Today</a>
+    <a href="#/alerts" data-tab="alerts">Alerts <i id="alert-dot"></i></a>
+    <a href="#/research" data-tab="research">Research</a>
+  </nav>
+</div>
+<div id="sheet" class="sheet" hidden></div>
+<script src="/static/app.js"></script>
+</body>
+</html>
