@@ -398,6 +398,19 @@ def test_llm_retries_malformed_json_and_never_caches_it(monkeypatch):
     assert '{"items": []}' in cached and not any('"g1" "verdict"' in r for r in cached)
 
 
+def test_transcripts_skip_a_call_listed_twice(monkeypatch):
+    # Polycab on screener, Nov 2026: the Jan 2026 transcript is listed under two entries.
+    co = {"documents": {"concalls": [
+        {"period": "Oct 2026", "transcript": "https://x/oct.pdf"},
+        {"period": "Jan 2026", "transcript": "https://x/jan.pdf"},
+        {"period": "Jan 2026", "transcript": "https://x/jan.pdf"},
+        {"period": "Oct 2025", "transcript": "https://x/oct25.pdf"},
+    ]}}
+    monkeypatch.setattr(documents.pdfs, "text", lambda url, max_pages=None: f"[p.1]\n{url} " + "words " * 1000)
+    got = documents.transcripts(co, n=5)
+    assert [t["url"] for t in got] == ["https://x/oct.pdf", "https://x/jan.pdf", "https://x/oct25.pdf"]
+
+
 def test_research_survives_a_failed_lens(monkeypatch):
     from finn.pull import research
 

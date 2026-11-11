@@ -119,9 +119,13 @@ def promised_vs_delivered(co, transcripts):
     if not calls:
         return None
 
-    promises, n = [], 0
+    promises, n, seen = [], 0, set()
     for c in reversed(calls):  # oldest first reads naturally
         for g in c["guidance"]:
+            key = (c.get("call_period") or c["source"]["period"], _norm(g.get("promise", "")))
+            if key in seen:
+                continue
+            seen.add(key)
             n += 1
             promises.append({**g, "id": f"g{n}", "made_in": c.get("call_period") or c["source"]["period"],
                              "source_url": c["source"]["url"]})

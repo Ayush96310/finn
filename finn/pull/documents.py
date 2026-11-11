@@ -8,13 +8,18 @@ log = logging.getLogger(__name__)
 
 def transcripts(co, n=5):
     """Latest n concall transcripts as (period, url, text). Screener lists newest first."""
-    out = []
-    for entry in co["documents"]["concalls"][:n + 2]:
+    out, seen = [], set()
+    for entry in co["documents"]["concalls"][:n + 3]:
         try:
             body = pdfs.text(entry["transcript"])
         except Exception as e:
             log.info("transcript %s unavailable: %s", entry.get("period"), e)
             continue
+        # Screener sometimes lists one call twice (Polycab's Jan 2026 transcript appears under two entries).
+        fingerprint = " ".join(body.split())[:5000]
+        if entry["transcript"] in seen or fingerprint in seen:
+            continue
+        seen.update((entry["transcript"], fingerprint))
         if len(body) > 3000 and not pdfs.is_scanned(body):
             out.append({"period": entry["period"], "url": entry["transcript"], "text": body})
         if len(out) == n:
