@@ -19,7 +19,7 @@ Open it on a phone on the same Wi-Fi, or deploy it (below). "Add to Home Screen"
 
 Optional settings:
 - `FINN_NTFY_TOPIC=some-private-name` sends each new alert as a push notification. Install the ntfy app and subscribe to that topic.
-- `FINN_MODEL_FAST` / `FINN_MODEL_SMART` override the Gemini models (defaults: `gemini-2.5-flash-lite` / `gemini-2.5-flash`).
+- `FINN_MODEL_FAST` / `FINN_MODEL_SMART` override the Gemini models (defaults: `gemini-3.5-flash-lite` / `gemini-3.5-flash`).
 - `FINN_ADMIN_TOKEN` enables `POST /api/refresh` with an `X-Finn-Token` header, for cron.
 
 To see the UI without network access, seed the fictional sample book:

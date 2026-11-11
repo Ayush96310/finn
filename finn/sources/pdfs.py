@@ -24,6 +24,9 @@ def fetch_bytes(url):
         headers["Referer"] = "https://www.nseindia.com/"
     r = requests.get(url, headers=headers, timeout=60)
     r.raise_for_status()
+    # Exchanges answer some requests with an HTML error page and a 200; never cache that as a PDF.
+    if not r.content.startswith(b"%PDF"):
+        raise ValueError(f"not a PDF: {url}")
     path.write_bytes(r.content)
     return r.content
 
@@ -32,7 +35,7 @@ def text(url, max_pages=None):
     """Plain text with [p.N] markers so downstream prompts can cite pages."""
     path = CACHE / f"{_key(url)}.{max_pages or 'all'}.txt"
     if path.exists():
-        return path.read_text()
+        return path.read_text(encoding="utf-8")
     from pypdf import PdfReader
 
     data = fetch_bytes(url)
@@ -49,8 +52,29 @@ def text(url, max_pages=None):
     except Exception as e:
         log.warning("could not parse %s: %s", url, e)
         body = ""
-    path.write_text(body)
+    path.write_text(body, encoding="utf-8")
     return body
+
+
+def first_pages(url, n):
+    """The first n pages as a new PDF, so a model reading the file pays for the results table only."""
+    from pypdf import PdfReader, PdfWriter
+
+    # Cached on disk: rewriting can change the bytes, which would defeat the LLM cache keyed on them.
+    path = CACHE / f"{_key(url)}.first{n}.pdf"
+    if path.exists():
+        return path.read_bytes()
+    data = fetch_bytes(url)
+    reader = PdfReader(io.BytesIO(data))
+    if len(reader.pages) <= n:
+        return data
+    writer = PdfWriter()
+    for page in reader.pages[:n]:
+        writer.add_page(page)
+    buf = io.BytesIO()
+    writer.write(buf)
+    path.write_bytes(buf.getvalue())
+    return buf.getvalue()
 
 
 def is_scanned(body):

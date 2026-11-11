@@ -2,12 +2,14 @@ import re
 
 BASE = {
     ("results", "filing"): 85, ("results", "deck"): 45, ("results", "notice"): 25, ("results", "ad"): 5,
+    ("results", "press"): 25,
     ("M&A", "deal"): 70,
     ("management_change", "senior"): 80, ("management_change", "change"): 45,
-    ("management_change", "minor"): 20,
+    ("management_change", "minor"): 20, ("management_change", "auditor"): 50,
     ("litigation", "matter"): 55,
     ("fund_raise", "raise"): 60,
     ("credit_rating", "downgrade"): 80, ("credit_rating", "upgrade"): 55, ("credit_rating", "reaffirm"): 15,
+    ("credit_rating", "revision"): 50, ("credit_rating", "rating"): 30,
     ("pledging", "pledge"): 60,
     ("insider_trading", "disclosure"): 35,
     ("capex", "capex"): 55,

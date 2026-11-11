@@ -37,9 +37,13 @@ def parse_table(section):
         cells = tr.find_all("td")
         if len(cells) < 2:
             continue
+        for tip in cells[0].select(".has-tooltip"):
+            tip.decompose()
         label = _clean_label(cells[0].get_text(" "))
-        if label:
-            rows[label] = [_num(td.get_text()) for td in cells[1:]]
+        values = [_num(td.get_text()) for td in cells[1:]]
+        # Skips link-only rows such as "Raw PDF".
+        if label and any(v is not None for v in values):
+            rows[label] = values
     return {"periods": head, "rows": rows}
 
 

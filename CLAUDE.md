@@ -10,7 +10,7 @@ Build FINN, a mobile-first financial investment agent for a mock portfolio of 15
 
 ## Decisions already made (don't relitigate without reason)
 - Stack: Python 3.10+ / FastAPI backend, vanilla JS PWA in `web/` (no build step), SQLite store.
-- LLM: Gemini free tier via `google-genai`. FAST model (`gemini-2.5-flash-lite`) for extraction, SMART model (`gemini-2.5-flash`) only for judging guidance and writing the thesis. Both can be overridden with `FINN_MODEL_FAST` / `FINN_MODEL_SMART`.
+- LLM: Gemini free tier via `google-genai`. FAST model (`gemini-3.5-flash-lite`) for extraction, SMART model (`gemini-3.5-flash`) only for judging guidance and writing the thesis (the 2.5 models the build started with are closed to new API keys as of Nov 2026). If one model is overloaded after retries, `llm.call` falls back to the other tier. Both can be overridden with `FINN_MODEL_FAST` / `FINN_MODEL_SMART`.
 - Depth: the push digest plus promised-vs-delivered. Other research lenses are lighter.
 - Ingestion runs locally (NSE blocks cloud IPs); the deployed app (Render, `render.yaml`) serves the committed `data/finn.db`. Research on new tickers can run live on the server.
 

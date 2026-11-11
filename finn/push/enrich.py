@@ -25,10 +25,13 @@ RESULTS_SCHEMA = {
             "current": {"type": "string"}, "previous": {"type": "string"}, "year_ago": {"type": "string"}}},
         "revenue": LINE,
         "other_income": LINE,
+        "total_income": LINE,
+        "total_expenses": LINE,
         "finance_costs": LINE,
         "depreciation": LINE,
         "exceptional_items": LINE,
         "operating_profit_before_provisions": LINE,
+        "provisions": LINE,
         "pbt": LINE,
         "pat": LINE,
     },
@@ -43,10 +46,13 @@ Rules:
 - Prefer the CONSOLIDATED statement if present, else standalone. Say which in "basis".
 - "unit" is the unit stated in the table header (e.g. "crore", "lakh", "million").
 - revenue = Revenue from operations (for banks: Interest earned, and set format = "bank").
+- total_income = the "Total income" line exactly as printed (it may include extra lines such as fair value gains).
+- total_expenses = the "Total expenses" (banks: "Total expenditure") line as printed.
 - pbt = Profit before tax (after exceptional items). pat = Net profit for the period (total, before OCI).
-- exceptional_items: as printed, negative if a loss. null if the line does not exist.
-- operating_profit_before_provisions: banks/NBFCs only.
+- exceptional_items: as printed, positive if it adds to profit, negative if a loss. null if the line does not exist.
+- operating_profit_before_provisions and provisions (other than tax, and contingencies): banks/NBFCs only.
 - Copy numbers exactly as printed. Brackets mean negative. Never compute or guess; use null if absent.
+- A blank cell is null for that period. Never shift a number from another column to fill it.
 
 FILING TEXT:
 {text}"""
@@ -62,7 +68,45 @@ def _pct(a, b):
     return round((a - b) / abs(b) * 100, 1)
 
 
-def build_results_card(raw, screener_quarters=None):
+PERIODS = ("current", "previous", "year_ago")
+
+
+def reconcile(raw):
+    """Check each period against the statement's own arithmetic, which is where a column shifted by a
+    blank cell or a bad OCR shows up. Returns (periods checked, periods that fail). Fixes the sign of an
+    exceptional item printed as a positive expense, since both conventions appear in real filings."""
+    v = lambda k, p: (raw.get(k) or {}).get(p)  # noqa: E731
+    bank = raw.get("format") == "bank"
+    exc = raw.setdefault("exceptional_items", {}) or {}
+    raw["exceptional_items"] = exc
+    printed = {abs(x) for x in exc.values() if x}
+    checked, bad = [], []
+    for p in PERIODS:
+        pbt = v("pbt", p)
+        a, b = ((v("operating_profit_before_provisions", p), v("provisions", p)) if bank else
+                (v("total_income", p), v("total_expenses", p)))
+        if pbt is None or a is None or b is None:
+            continue
+        checked.append(p)
+        # A company's associates' share sits between these lines; nothing does for a bank.
+        tol = max(0.005 * abs(pbt), 1) if bank else max(0.03 * abs(pbt), 0.001 * abs(a), 0.5)
+        ex = exc.get(p) or 0
+        if ex and abs(a - b - ex - pbt) < abs(a - b + ex - pbt):
+            ex = exc[p] = -ex
+        if abs(a - b + ex - pbt) <= tol:
+            continue
+        # The usual failure is the exceptional row shifted across a blank cell. If the gap is zero or
+        # equals a value printed in another column, put that value here.
+        implied = pbt - (a - b)
+        fit = next((c for c in [0, *printed] if abs(abs(implied) - c) <= tol), None)
+        if fit is None:
+            bad.append(p)
+        else:
+            exc[p] = None if fit == 0 else (fit if implied > 0 else -fit)
+    return checked, bad
+
+
+def build_results_card(raw, screener_quarters=None, screener_basis=None):
     unit = (raw.get("unit") or "crore").lower()
     factor = next((v for k, v in TO_CRORE.items() if k in unit), 1)
     get = lambda k, p: _to_crore((raw.get(k) or {}).get(p), factor)  # noqa: E731
@@ -87,9 +131,13 @@ def build_results_card(raw, screener_quarters=None):
     ex = get("exceptional_items", "current")
     if ex and pbt and abs(ex) > 0.1 * abs(pbt):
         flags.append(f"Exceptional item of ₹{ex:,.0f} cr distorts PBT/PAT")
+    nonop = _non_operating(get, "current")
+    if nonop and pbt and abs(nonop) > 0.1 * abs(pbt):
+        flags.append(f"₹{nonop:,.0f} cr of non-operating income sits in total income: excluded from "
+                     f"EBITDA, still inside PBT/PAT")
 
     check = None
-    if screener_quarters and rev:
+    if screener_quarters and rev and screener_basis in (None, raw.get("basis")):
         sales = screener_quarters["rows"].get("Sales") or screener_quarters["rows"].get("Revenue")
         if sales and sales[-1]:
             diff = abs(sales[-1] - rev) / sales[-1]
@@ -114,19 +162,45 @@ def _ebitda(raw, p, get, is_bank):
         return None
     other = get("other_income", p) or 0
     exceptional = get("exceptional_items", p) or 0
-    # Operating EBITDA: strip financing, D&A, treasury income and one-offs.
-    return round(pbt + fin + dep - other - exceptional, 2)
+    # Operating EBITDA: strip financing, D&A, treasury income, non-operating gains and one-offs.
+    return round(pbt + fin + dep - other - (_non_operating(get, p) or 0) - exceptional, 2)
 
 
-def results_card(filing, screener_quarters=None):
-    body = pdfs.text(filing["attachment"], max_pages=12)
-    if pdfs.is_scanned(body):
-        raw = llm.call(RESULTS_PROMPT.format(text="(attached PDF)"), task="results_extract",
-                       as_json=True, schema=RESULTS_SCHEMA, pdf=pdfs.fetch_bytes(filing["attachment"]))
-    else:
-        raw = llm.call(RESULTS_PROMPT.format(text=body[:60000]), task="results_extract",
-                       as_json=True, schema=RESULTS_SCHEMA)
-    return build_results_card(raw, screener_quarters)
+def _non_operating(get, p):
+    """Lines added into total income besides revenue and other income, e.g. Titan's fair value gain on a
+    put option. Derived, not extracted, so the model never has to recognise them by name."""
+    total, rev = get("total_income", p), get("revenue", p)
+    if total is None or rev is None:
+        return None
+    gap = round(total - rev - (get("other_income", p) or 0), 2)
+    # Ignore rounding noise in the printed totals.
+    return gap if abs(gap) > 0.005 * abs(total) else None
+
+
+def _extract(text, pdf=None):
+    return llm.call(RESULTS_PROMPT.format(text=text), task="results_extract", as_json=True,
+                    schema=RESULTS_SCHEMA, pdf=pdf)
+
+
+def results_card(filing, screener_quarters=None, screener_basis=None):
+    url = filing["attachment"]
+    body = pdfs.text(url, max_pages=12)
+    raw, checked, bad = None, [], list(PERIODS)
+    if not pdfs.is_scanned(body):
+        raw = _extract(body[:60000])
+        checked, bad = reconcile(raw)
+    if bad:
+        # Text extraction loses table layout on scans and blank cells; the PDF itself keeps it.
+        retry = _extract("(attached PDF)", pdf=pdfs.first_pages(url, 12))
+        r_checked, r_bad = reconcile(retry)
+        if raw is None or len(r_bad) < len(bad):
+            raw, checked, bad = retry, r_checked, r_bad
+    card = build_results_card(raw, screener_quarters, screener_basis)
+    if bad:
+        names = ", ".join((raw.get("periods") or {}).get(p) or p for p in bad)
+        card["flags"].append(f"Figures don't add up for {names}; check the filing before relying on them")
+    card["reconciled"] = bool(checked) and not bad
+    return card
 
 
 PEOPLE_PROMPT = """From this Indian stock-exchange disclosure about a management change, list each person

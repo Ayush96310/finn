@@ -24,7 +24,8 @@ def _get_client():
         raise LLMUnavailable("GEMINI_API_KEY not set")
     if _client is None:
         from google import genai
-        _client = genai.Client(api_key=GEMINI_API_KEY)
+        from google.genai import types
+        _client = genai.Client(api_key=GEMINI_API_KEY, http_options=types.HttpOptions(timeout=120_000))
     return _client
 
 
@@ -70,19 +71,15 @@ def call(prompt, *, smart=False, task="misc", as_json=False, schema=None, pdf=No
         if schema:
             cfg["response_schema"] = schema
 
-    for attempt in range(max_retries):
-        try:
-            resp = client.models.generate_content(
-                model=model, contents=parts, config=types.GenerateContentConfig(**cfg))
-            break
-        except Exception as e:
-            msg = str(e)
-            if ("429" in msg or "RESOURCE_EXHAUSTED" in msg or "503" in msg) and attempt < max_retries - 1:
-                wait = 8 * (attempt + 1)
-                log.info("rate limited on %s, sleeping %ss", model, wait)
-                time.sleep(wait)
-                continue
-            raise
+    config = types.GenerateContentConfig(**cfg)
+    try:
+        resp = _generate(client, model, parts, config, max_retries)
+    except _Busy:
+        # A demo shouldn't die because one model is overloaded; the other tier usually isn't.
+        other = MODEL_FAST if smart else MODEL_SMART
+        log.warning("%s still busy after retries, falling back to %s", model, other)
+        model = other
+        resp = _generate(client, model, parts, config, 2)
 
     text = resp.text or ""
     usage = resp.usage_metadata
@@ -93,6 +90,25 @@ def call(prompt, *, smart=False, task="misc", as_json=False, schema=None, pdf=No
                   "values (?,?,?,?,?)", (key, model, text, i, o))
     _record(model, task, i, o, False)
     return _parse_json(text) if as_json else text
+
+
+class _Busy(RuntimeError):
+    pass
+
+
+def _generate(client, model, parts, config, retries):
+    for attempt in range(retries):
+        try:
+            return client.models.generate_content(model=model, contents=parts, config=config)
+        except Exception as e:
+            msg = str(e)
+            if not any(s in msg for s in ("429", "RESOURCE_EXHAUSTED", "503", "UNAVAILABLE")):
+                raise
+            if attempt == retries - 1:
+                raise _Busy(msg) from e
+            wait = 8 * (attempt + 1)
+            log.info("%s busy, sleeping %ss", model, wait)
+            time.sleep(wait)
 
 
 def web_bio(prompt):

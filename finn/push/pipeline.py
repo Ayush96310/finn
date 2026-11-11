@@ -56,15 +56,22 @@ def enrich_pending(limit=40):
         cat, sub = f["category"], f["subtype"]
         try:
             if cat == "results" and sub == "filing" and f["attachment"]:
-                quarters = None
+                quarters = basis = None
                 try:
-                    quarters = screener.company(f["symbol"])["tables"]["quarters"]
+                    co = screener.company(f["symbol"])
+                    quarters, basis = co["tables"]["quarters"], co.get("basis")
                 except Exception:
                     pass
-                card = enrich.results_card(f, quarters)
+                card = enrich.results_card(f, quarters, basis)
                 enrich.save_card(f["id"], card=card, summary=_results_line(card))
-            elif cat == "management_change" and sub == "senior" and f["attachment"]:
-                enrich.save_card(f["id"], card=enrich.people_card(f, portfolio.name_of(f["symbol"])))
+            elif cat == "management_change" and sub in ("senior", "change") and f["attachment"]:
+                card = enrich.people_card(f, portfolio.name_of(f["symbol"]))
+                enrich.save_card(f["id"], card=card)
+                if sub == "change":
+                    # Subjects like "Change in Director(s)" name nobody; the filing says who it is.
+                    f["subtype"] = classify.seniority(" ".join(p.get("role") or "" for p in card["people"]))
+                    with db.session() as c:
+                        c.execute("update filings set subtype = ? where id = ?", (f["subtype"], f["id"]))
                 to_summarise.append(f)
             else:
                 to_summarise.append(f)

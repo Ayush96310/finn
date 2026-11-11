@@ -2,6 +2,19 @@ import os
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
+
+
+def _load_dotenv(path):
+    # Keeps the API key out of shell history and chat logs. Real environment variables win.
+    if not path.exists():
+        return
+    for line in path.read_text(encoding="utf-8").splitlines():
+        key, sep, value = line.partition("=")
+        if sep and not line.lstrip().startswith("#"):
+            os.environ.setdefault(key.strip(), value.strip().strip("\"'"))
+
+
+_load_dotenv(ROOT / ".env")
 DATA_DIR = Path(os.getenv("FINN_DATA_DIR", ROOT / "data"))
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 DB_PATH = DATA_DIR / "finn.db"
@@ -10,8 +23,9 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 
 # Two tiers. Bulk extraction goes to FAST, anything that has to weigh evidence goes to SMART.
 # Override with env vars when Google renames things.
-MODEL_FAST = os.getenv("FINN_MODEL_FAST", "gemini-2.5-flash-lite")
-MODEL_SMART = os.getenv("FINN_MODEL_SMART", "gemini-2.5-flash")
+# The 2.5 models are closed to new API keys as of Nov 2026.
+MODEL_FAST = os.getenv("FINN_MODEL_FAST", "gemini-3.5-flash-lite")
+MODEL_SMART = os.getenv("FINN_MODEL_SMART", "gemini-3.5-flash")
 
 # USD per 1M tokens (input, output) - only used to show what the free-tier usage would have cost.
 PRICES = {
