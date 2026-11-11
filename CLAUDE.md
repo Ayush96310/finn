@@ -15,7 +15,19 @@ Build FINN, a mobile-first financial investment agent for a mock portfolio of 15
 - Ingestion runs locally (NSE blocks cloud IPs); the deployed app (Render, `render.yaml`) serves the committed `data/finn.db`. Research on new tickers can run live on the server.
 
 ## Current state (11 Nov 2026)
-Tasks 1 and 2 below are done: the live path runs end to end on this Windows laptop (venv in `.venv`, key in a gitignored `.env`), and tiers were tuned on a real week of filings. 55 tests pass, many built from real NSE strings, saved screener pages and hand-checked results filings (`tests/fixtures/`). WRITEUP.md lists what real data changed and the honest gaps. Remaining: deploy (task 3) and polish (task 4).
+Tasks 1-3 below are done and the app is submitted-ready. The live path runs on this Windows laptop (venv in `.venv`, key in a gitignored `.env`; never read or print it). 128 tests pass, many built from real NSE strings, saved screener pages and hand-checked results filings (`tests/fixtures/`).
+
+- **Live:** https://finn-l0d0.onrender.com (Render free tier, Blueprint from `render.yaml`, `GEMINI_API_KEY` set in Render). Render's GitHub app is installed on this repo only, so **every push to master auto-deploys** in about a minute.
+- **Repo:** https://github.com/Ayush96310/finn (public).
+- **Data:** `data/finn.db` is committed: prices, a week of filings and alerts as of 11 Nov 12:35, and pre-built research for KAYNES, POLYCAB, PERSISTENT, CDSL, TITAN, HDFCBANK, DIXON and TRENT. Research on other tickers runs live on the server (written to Render's ephemeral disk).
+- **WRITEUP.md** is the final covering note. Its numbers (5 items in "Needs you" for the week, Kaynes's three misses, spend so far) must be rechecked if the data is refreshed.
+- **AI build history** for this session was exported to the user's Downloads folder on 11 Nov.
+
+**Remaining before the 15 Nov deadline:**
+1. On 14-15 Nov after 15:45 IST: `python -m finn refresh --days 7` (must run locally; NSE blocks cloud IPs), recheck WRITEUP.md's numbers, commit `data/finn.db`, push.
+2. The user submits: live link, repo link, chat exports, WRITEUP.md.
+
+Known gaps (in WRITEUP.md): web search grounding is 429 on the free tier; HDFC Bank's MD&A isn't located; Trent has no transcripts on screener. Research links use `#/r/SYMBOL`.
 
 ### Map
 - `finn/sources/prices.py`: yfinance EOD (`SYMBOL.NS`); `day_stats`, `move_on` (market reaction to a filing).
