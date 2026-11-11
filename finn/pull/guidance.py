@@ -114,31 +114,68 @@ def extract(transcript):
     return data
 
 
+_N = r"(?:\d+|one|two|three|four|five|six|seven|eight|nine|ten|twelve|eighteen)"
+# A promise can only be kept or missed if it says when. "FY27", "Q3", "March 2027", "next two quarters", "this
+# fiscal" qualify; "long term", "coming years", "going forward" and "upon full utilisation" don't.
+DATED = re.compile(
+    rf"\b(?:fy|cy)\s?'?\d{{2,4}}|\bq[1-4]\b|\bh[12]\b|\b20\d{{2}}\b|'\d{{2}}\b|\byear\s*1\b"
+    rf"|\b(?:this|current|next|full|balance part of)(?: the)?\s+(?:quarter|year|fiscal|financial year)\b"
+    rf"|\bnext\s+{_N}(?:\s*(?:to|-)\s*{_N})?\s+(?:years?|months?|quarters?)\b"
+    rf"|\b{_N}\s*(?:to|-)\s*{_N}\s+(?:years?|months?|quarters?)\b|\bend of\b", re.I)
+
+
+def assemble(calls):
+    """Promises worth judging, oldest call first. Undated goals are dropped (and counted), a promise repeated
+    within a call is dropped, and one repeated on later calls (same metric, same numbers, same target year)
+    is kept once, where it was first made, with the later calls listed: the clock starts at the first
+    promise, and repetition is itself worth seeing."""
+    promises, vague, seen, first = [], 0, set(), {}
+    for c in reversed(calls):
+        made_in = c.get("call_period") or c["source"]["period"]
+        for g in c["guidance"]:
+            if not DATED.search(g.get("horizon") or ""):
+                vague += 1
+                continue
+            if (made_in, _norm(g.get("promise", ""))) in seen:
+                continue
+            seen.add((made_in, _norm(g.get("promise", ""))))
+            numbers = tuple(re.findall(r"\d+(?:\.\d+)?", g.get("target") or ""))
+            years = tuple(sorted({y[-2:] for y in re.findall(r"\d{2,4}", g.get("horizon") or "")}))  # FY30 = FY 2030
+            key = (g.get("metric"), numbers, years)
+            if numbers and key in first:
+                again = first[key].setdefault("reiterated", [])
+                if made_in != first[key]["made_in"] and made_in not in again:
+                    again.append(made_in)
+                continue
+            p = {**g, "id": f"g{len(promises) + 1}", "made_in": made_in, "source_url": c["source"]["url"]}
+            promises.append(p)
+            if numbers:
+                first[key] = p
+    return promises, vague
+
+
 def promised_vs_delivered(co, transcripts):
     calls = [extract(t) for t in transcripts]
     if not calls:
         return None
 
-    promises, n, seen = [], 0, set()
-    for c in reversed(calls):  # oldest first reads naturally
-        for g in c["guidance"]:
-            key = (c.get("call_period") or c["source"]["period"], _norm(g.get("promise", "")))
-            if key in seen:
-                continue
-            seen.add(key)
-            n += 1
-            promises.append({**g, "id": f"g{n}", "made_in": c.get("call_period") or c["source"]["period"],
-                             "source_url": c["source"]["url"]})
+    promises, vague = assemble(calls)
     if not promises:
-        return {"items": [], "calls": _call_meta(calls), "credibility": None, "watch": None,
-                "note": "No concrete numeric guidance found in the recent calls."}
+        note = "No concrete numeric guidance found in the recent calls."
+        if vague:
+            note = (f"Management gave {vague} forward-looking goals without a date (\"long term\", \"coming years\"), "
+                    "so none can be checked yet.")
+        return {"items": [], "calls": _call_meta(calls), "credibility": None, "watch": None, "note": note,
+                "dropped_vague": vague}
 
     claims = "\n".join(
         f"- {c.get('call_period') or c['source']['period']}: " +
         "; ".join(x.get("claim", "") for x in c.get("claims", [])[:6])
         for c in reversed(calls))
     plist = "\n".join(f"[{p['id']}] made in {p['made_in']}: {p['promise']} | target: {p.get('target', '')} "
-                      f"| horizon: {p.get('horizon', '')}" for p in promises[:30])
+                      f"| horizon: {p.get('horizon', '')}"
+                      + (f" | repeated on: {', '.join(p['reiterated'])}" if p.get("reiterated") else "")
+                      for p in promises[:30])
     judged = llm.call(JUDGE_PROMPT.format(company=co.get("name") or co["symbol"],
                                           actuals=financials.quarterly_table_for_prompt(co),
                                           claims=claims, promises=plist),
@@ -153,7 +190,7 @@ def promised_vs_delivered(co, transcripts):
     tally = {}
     for it in items:
         tally[it["verdict"]] = tally.get(it["verdict"], 0) + 1
-    return {"items": items, "tally": tally, "calls": _call_meta(calls),
+    return {"items": items, "tally": tally, "calls": _call_meta(calls), "dropped_vague": vague,
             "credibility": judged.get("credibility"), "watch": judged.get("watch")}
 
 

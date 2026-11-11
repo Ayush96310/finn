@@ -345,11 +345,12 @@ function pvdLens(g) {
       <div class="section-h" style="padding-top:10px"><h2>Said on the ${esc(call)} call</h2></div>
       ${items.map((it) => `<details class="promise"><summary>
         <span class="pill v-${it.verdict}">${VERDICT[it.verdict] || it.verdict}</span>
-        <span class="what">${esc(it.promise)}<small>${esc([it.target, it.horizon].filter(Boolean).join(" · "))}</small></span></summary>
+        <span class="what">${esc(it.promise)}<small>${esc([it.target, it.horizon].filter(Boolean).join(" · "))}${it.reiterated?.length ? ` · repeated on ${esc(it.reiterated.join(", "))}` : ""}</small></span></summary>
         <div class="body">${it.evidence ? `<p style="margin:0 0 8px">${esc(it.evidence)}</p>` : ""}
           <blockquote>“${esc(it.quote)}”${it.speaker ? ` <span class="cite">: ${esc(it.speaker)}</span>` : ""}</blockquote>
           <a href="${esc(it.source_url)}" target="_blank" rel="noopener">transcript ↗</a></div></details>`).join("")}`).join("")}
     ${dropped ? `<p class="cite" style="margin:10px var(--pad) 0">${dropped} extracted promise${dropped > 1 ? "s" : ""} dropped because the quote couldn't be found verbatim in the transcript.</p>` : ""}
+    ${g.dropped_vague ? `<p class="cite" style="margin:6px var(--pad) 0">${g.dropped_vague} undated goal${g.dropped_vague > 1 ? "s" : ""} ("long term", "coming years") left out: without a date they can't be kept or missed.</p>` : ""}
   </section>`;
 }
 

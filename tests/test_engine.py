@@ -462,6 +462,53 @@ def test_research_survives_a_failed_lens(monkeypatch):
     assert research.status("PERSISTENT")["state"] == "done"
 
 
+DATED_HORIZONS = [  # as extracted from real calls (Polycab, Kaynes, Persistent, Titan, HDFC Bank, Dixon)
+    "FY27", "FY26", "FY28", "current fiscal", "By FY 2030", "FY 2030", "Q3 FY27", "next two to three years",
+    "by FY30", "End of FY27", "this fiscal", "Through to FY 2030", "annually through FY30", "Next 5 years",
+    "until FY30", "medium to long-term (FY30)", "March '26", "Next quarter / Q3 FY26", "FY26 and FY27",
+    "March 2027", "FY31", "FY27 Q4", "Next 2 years / future trajectory", "FY2030", "Year 1", "next two quarters",
+    "Q4-CY26 or Q1-CY27", "Full year FY26", "YTD December / Q3", "1 to 2 years", "next 3 to 5 years",
+    "Full year / ongoing", "Full year", "Medium to long term / FY30 goals", "next quarter onwards",
+    "next year / next fiscal", "next fiscal", "this year", "next two years", "next three to four years",
+    "Next year", "Next financial year", "next 15 to 18 months", "quarter-on-quarter / balance part of fiscal year",
+    "end of Q2 this financial year", "next year / current year", "when component play is completely deployed / FY27-28",
+]
+UNDATED_HORIZONS = [
+    "long-term", "medium to long-term", "medium to long term", "Medium to long term", "mid- to long term",
+    "Near to mid term / long term", "Mid- to long term", "long term", "going forward", "Coming years", "coming years",
+    "Times to come", "Future", "aspirational", "Medium term", "when 1 lakh crore sales level is achieved",
+    "upon full capacity utilization", "",
+]
+
+
+@pytest.mark.parametrize("horizon", DATED_HORIZONS)
+def test_dated_horizons_kept(horizon):
+    assert guidance.DATED.search(horizon)
+
+
+@pytest.mark.parametrize("horizon", UNDATED_HORIZONS)
+def test_undated_horizons_dropped(horizon):
+    assert not guidance.DATED.search(horizon)
+
+
+def test_assemble_merges_reiterated_promises():
+    # Polycab repeated its FMEG margin goal on later calls; the oldest call comes last in the list.
+    def call(period, *guidance_items):
+        return {"call_period": period, "source": {"period": period, "url": f"https://x/{period}.pdf"},
+                "guidance": list(guidance_items)}
+    fmeg = {"metric": "margin", "promise": "FMEG EBITDA margin of 8-10% by FY30", "target": "8% to 10%",
+            "horizon": "by FY30", "quote": "q"}
+    calls = [
+        call("Q2 FY27", {**fmeg, "promise": "FMEG margin to end up at 8-10% over the longer term", "horizon": "longer term / FY30"}),
+        call("Q1 FY27", {**fmeg, "horizon": "by FY 2030"}),
+        call("Q4 FY26", fmeg, {"metric": "other", "promise": "Grow 1.5x the market", "target": "1.5x", "horizon": "long-term", "quote": "q"}),
+    ]
+    promises, vague = guidance.assemble(calls)
+    assert vague == 1
+    assert len(promises) == 1
+    assert promises[0]["made_in"] == "Q4 FY26" and promises[0]["reiterated"] == ["Q1 FY27", "Q2 FY27"]
+
+
 def test_quote_verification():
     transcript = guidance._norm("""Moderator: thank you. Rajesh Kumar: So for FY27 we are guiding to
     revenue growth of 14% to 16%, and we expect EBITDA margins to be in the 21-22% band by the fourth quarter.""")
