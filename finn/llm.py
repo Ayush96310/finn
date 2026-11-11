@@ -116,7 +116,8 @@ def _generate(client, model, parts, config, retries):
             return client.models.generate_content(model=model, contents=parts, config=config)
         except Exception as e:
             msg = str(e)
-            if not any(s in msg for s in ("429", "RESOURCE_EXHAUSTED", "503", "UNAVAILABLE")):
+            if not any(s in msg for s in ("429", "RESOURCE_EXHAUSTED", "503", "UNAVAILABLE", "504",
+                                          "DEADLINE_EXCEEDED")):
                 raise
             if attempt == retries - 1:
                 raise _Busy(msg) from e

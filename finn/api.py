@@ -13,6 +13,15 @@ app = FastAPI(title="FINN")
 WEB = Path(__file__).resolve().parent.parent / "web"
 
 
+@app.middleware("http")
+async def revalidate_app_files(request, call_next):
+    # Without this, browsers guess a cache lifetime for app.js and keep running the old one after a deploy.
+    response = await call_next(request)
+    if not request.url.path.startswith("/api/"):
+        response.headers["Cache-Control"] = "no-cache"
+    return response
+
+
 @app.get("/api/meta")
 def meta():
     return {"as_of": digest.as_of().isoformat(timespec="minutes"), "llm": llm.available(),

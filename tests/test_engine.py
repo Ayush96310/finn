@@ -398,6 +398,28 @@ def test_llm_retries_malformed_json_and_never_caches_it(monkeypatch):
     assert '{"items": []}' in cached and not any('"g1" "verdict"' in r for r in cached)
 
 
+def test_research_survives_a_failed_lens(monkeypatch):
+    from finn.pull import research
+
+    co = screener.parse_company(_fixture("screener_persistent.html"))
+    co["symbol"] = "PERSISTENT"
+    monkeypatch.setattr(research.screener, "company", lambda s, refresh=False: co)
+    monkeypatch.setattr(research.llm, "available", lambda: True)
+    monkeypatch.setattr(research.documents, "transcripts", lambda c, n=5: [
+        {"period": "Oct 2026", "url": "https://x/t.pdf", "text": "transcript text " * 300}])
+    monkeypatch.setattr(research.documents, "annual_report_mdna", lambda c: None)
+
+    def timed_out(*a, **k):
+        raise RuntimeError("504 DEADLINE_EXCEEDED. Deadline expired before operation could complete.")
+
+    monkeypatch.setattr(research.guidance, "promised_vs_delivered", timed_out)
+    monkeypatch.setattr(research.thesis, "build", lambda *a, **k: {"bull": ["b"], "bear": ["r"]})
+    out = research.run("PERSISTENT")
+    assert out["guidance"]["unfinished"] and out["thesis"] == {"bull": ["b"], "bear": ["r"]}
+    assert out["trajectory"]["annual"]["sales"]
+    assert research.status("PERSISTENT")["state"] == "done"
+
+
 def test_quote_verification():
     transcript = guidance._norm("""Moderator: thank you. Rajesh Kumar: So for FY27 we are guiding to
     revenue growth of 14% to 16%, and we expect EBITDA margins to be in the 21-22% band by the fourth quarter.""")

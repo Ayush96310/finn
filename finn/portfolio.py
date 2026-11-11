@@ -24,7 +24,7 @@ DEFAULT_PORTFOLIO = [
 ]
 
 # Off-book names for the research demo. Nothing in the engine is specific to these.
-RESEARCH_DEMO = ["TRENT", "PERSISTENT", "CDSL", "KAYNES"]
+RESEARCH_DEMO = ["KAYNES", "PERSISTENT", "CDSL", "TRENT"]
 
 
 def get_portfolio():

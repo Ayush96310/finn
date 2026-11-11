@@ -83,7 +83,7 @@ function shortPeriod(p) {
 let meta = {};
 
 async function renderToday() {
-  const hours = store.get("hours", meta.settings?.window_hours || 24);
+  const hours = store.get("hours", meta.settings?.window_hours || 72);
   view.innerHTML = `<div class="hero"><h1 class="muted">Reading the tape…</h1></div>`;
   const d = await api(`/api/digest?hours=${hours}`);
   const cleared = new Set(store.get("cleared", []));
@@ -235,10 +235,15 @@ async function renderResearchHome() {
   };
 }
 
+const retried = new Set();
+
 async function renderResearch(sym) {
   clearTimeout(pollTimer);
   let { status, data } = await api(`/api/research/${sym}`);
-  if (!data && status.state !== "running") {
+  // Re-run once a view whose judging step didn't finish last time; finished steps come back from the cache.
+  const retry = data?.guidance?.unfinished && !retried.has(sym);
+  if ((!data || retry) && status.state !== "running") {
+    if (retry) retried.add(sym);
     try { status = await api(`/api/research/${sym}`, { method: "POST" }); }
     catch (e) { view.innerHTML = `<div class="empty"><b>Can't research ${esc(sym)}.</b>${esc(e.message)}</div>`; return; }
   }
@@ -262,8 +267,10 @@ function progress(sym, status) {
 function drawResearch(sym, d, status) {
   const s = d.snapshot, t = d.trajectory, b = d.balance_sheet, c = d.cash, g = d.guidance, th = d.thesis;
   const running = status.state === "running";
+  // Finished with no calls to read: keep the lens and say why, rather than let the headline feature vanish.
+  const noCalls = !g && !running && d.llm && d.sources && !d.sources.calls.length;
   const lenses = [
-    ["pvd", "Promised vs delivered", g || running],
+    ["pvd", "Promised vs delivered", g || running || noCalls],
     ["biz", "Business", th || d.about],
     ["traj", "Trajectory", true],
     ["bs", "Balance sheet", true],
@@ -278,7 +285,8 @@ function drawResearch(sym, d, status) {
     <nav class="lenses">${lenses.map(([id, l], i) => `<a href="#${id}" data-lens="${id}" class="${i === 0 ? "on" : ""}">${l}</a>`).join("")}</nav>
     ${running ? `<div class="progress" style="margin-top:12px"><div>${esc(status.step || "Working…")}</div><div class="bar"><i></i></div></div>` : ""}
 
-    ${g ? pvdLens(g) : !d.llm ? `<section class="lens" id="pvd"><p>Narrative lenses need a Gemini key on this deployment; the numbers below are computed directly.</p></section>` : ""}
+    ${g ? pvdLens(g) : !d.llm ? `<section class="lens" id="pvd"><p>Narrative lenses need a Gemini key on this deployment; the numbers below are computed directly.</p></section>`
+      : noCalls ? `<section class="lens" id="pvd"><div class="section-h"><h2>Promised vs delivered</h2></div><p>No earnings-call transcripts are published for ${esc(sym)} on screener.in, so there are no management promises to check. The business, numbers and bull/bear lenses below still come from the annual report and reported financials.</p></section>` : ""}
     ${bizLens(d, th)}
     ${trajLens(t, s)}
     ${bsLens(b)}
@@ -463,7 +471,7 @@ async function route() {
 }
 
 async function boot() {
-  meta = await api("/api/meta").catch(() => ({ settings: { price_pct: 4, vol_mult: 2, window_hours: 24 } }));
+  meta = await api("/api/meta").catch(() => ({ settings: { price_pct: 4, vol_mult: 2, window_hours: 72 } }));
   if (meta.as_of) $("#asof").textContent = "as of " + new Date(meta.as_of).toLocaleString("en-IN", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", hour12: false });
   if (meta.sample) $("#banner").innerHTML = `<div class="banner">Sample data for UI development, not real filings. Run <code>python -m finn refresh</code> for live data.</div>`;
   api("/api/alerts?days=14").then((list) => {

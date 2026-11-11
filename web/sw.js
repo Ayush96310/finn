@@ -1,5 +1,5 @@
-const SHELL = "finn-v1";
-const ASSETS = ["/", "/static/styles.css", "/static/app.js", "/static/icon.svg"];
+const SHELL = "finn-v2";
+const ASSETS = ["/", "/static/styles.css?v=2", "/static/app.js?v=2", "/static/icon.svg"];
 
 self.addEventListener("install", (e) => e.waitUntil(caches.open(SHELL).then((c) => c.addAll(ASSETS))));
 self.addEventListener("activate", (e) => e.waitUntil(

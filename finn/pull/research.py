@@ -13,6 +13,8 @@ log = logging.getLogger(__name__)
 _jobs = {}
 _lock = threading.Lock()
 SYMBOL = re.compile(r"^[A-Z0-9&\-]{1,20}$")
+UNFINISHED = ("The model didn't finish judging these calls (it was overloaded or timed out). "
+              "Open this company again to retry; the transcripts already read are cached.")
 
 
 def _set(symbol, **kw):
@@ -47,14 +49,23 @@ def run(symbol, refresh=False):
             _set(symbol, step="Reading the last five concall transcripts")
             calls = documents.transcripts(co, n=5)
             _set(symbol, step=f"Checking {len(calls)} calls: promised vs delivered")
-            out["guidance"] = guidance.promised_vs_delivered(co, calls[:5]) if calls else None
+            # Each narrative lens stands alone: one model failure shouldn't take the others down with it.
+            try:
+                out["guidance"] = guidance.promised_vs_delivered(co, calls[:5]) if calls else None
+            except Exception:
+                log.exception("promised vs delivered failed for %s", symbol)
+                out["guidance"] = {"items": [], "calls": [], "note": UNFINISHED, "unfinished": True}
             db.kv_set(f"research:{symbol}", out)
 
             _set(symbol, step="Reading the annual report MD&A")
             ar = documents.annual_report_mdna(co)
             _set(symbol, step="Writing business snapshot and bull/bear")
-            out["thesis"] = thesis.build(co, thesis.numbers_brief(snap, traj, bs, cash), ar,
-                                         calls[0] if calls else None)
+            try:
+                out["thesis"] = thesis.build(co, thesis.numbers_brief(snap, traj, bs, cash), ar,
+                                             calls[0] if calls else None)
+            except Exception:
+                log.exception("thesis failed for %s", symbol)
+                out["thesis"] = None
             out["sources"] = {
                 "annual_report": {"title": ar["title"], "url": ar["url"]} if ar else None,
                 "calls": [{"period": c["period"], "url": c["url"]} for c in calls],

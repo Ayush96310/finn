@@ -1,7 +1,7 @@
 from . import db
 
 DEFAULTS = {
-    "window_hours": 24,
+    "window_hours": 72,     # a single day is often empty for an 18-stock book; three days rarely is
     "price_pct": 4.0,       # alert when |daily move| crosses this
     "vol_mult": 2.0,        # alert when volume > N x 20-day average
     "watch": ["results", "M&A", "management_change", "litigation", "credit_rating",
