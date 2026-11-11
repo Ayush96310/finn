@@ -411,6 +411,35 @@ def test_transcripts_skip_a_call_listed_twice(monkeypatch):
     assert [t["url"] for t in got] == ["https://x/oct.pdf", "https://x/jan.pdf", "https://x/oct25.pdf"]
 
 
+def test_names_match_real_filing_text():
+    subject = "Asian Paints Limited has informed the Exchange regarding Appointment of Mr Leo Puri as Chairman"
+    url = "https://nsearchives.nseindia.com/corporate/ASIANPAINT_07092026144607_SE_Appointment_Leo_Puri_-_ID_and_chair_signed.pdf"
+    assert enrich._names_match("Mr. Leo Puri", subject)
+    assert enrich._names_match("Mr. Leo Puri", url)
+    assert not enrich._names_match("Mr. Leo Puri", "Appointment of Mr Leonard Purohit as Director")
+    assert not enrich._names_match("Mr.", subject)
+
+
+def test_earlier_profile_found_in_the_original_appointment(monkeypatch):
+    # Asian Paints, Nov 2026: the postal-ballot result naming Leo Puri as incoming Chairman has no profile; the
+    # 7 Sep 2026 appointment filing carries one in Annexure A.
+    history = [
+        {"filed_at": "2026-11-06 22:02:45", "subject": "Change in Director(s) of the company.",
+         "attachment": "https://x/ballot.pdf"},
+        {"filed_at": "2026-10-07 20:44:07", "subject": "Postal Ballot Notice dated 7th September 2026",
+         "attachment": "https://x/notice.pdf"},
+        {"filed_at": "2026-09-07 14:46:45", "subject": "Appointment of Mr Leo Puri as Chairman of the company",
+         "attachment": "https://x/ASIANPAINT_SE_Appointment_Leo_Puri.pdf"},
+    ]
+    read = []
+    monkeypatch.setattr(enrich.pdfs, "text", lambda url, max_pages=None: read.append(url) or "Annexure A Profile")
+    monkeypatch.setattr(enrich.llm, "call", lambda *a, **k: {"profile": "Ex-MD & CEO, UTI AMC; ex-JP Morgan."})
+    found = enrich.earlier_profile("Mr. Leo Puri", "Asian Paints", history, skip_url="https://x/ballot.pdf")
+    assert found == {"profile": "Ex-MD & CEO, UTI AMC; ex-JP Morgan.",
+                     "source": {"url": "https://x/ASIANPAINT_SE_Appointment_Leo_Puri.pdf", "date": "2026-09-07"}}
+    assert read == ["https://x/ASIANPAINT_SE_Appointment_Leo_Puri.pdf"]  # filings not naming him aren't read
+
+
 def test_research_survives_a_failed_lens(monkeypatch):
     from finn.pull import research
 

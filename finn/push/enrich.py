@@ -3,7 +3,7 @@ import logging
 import re
 
 from .. import db, llm
-from ..sources import pdfs
+from ..sources import nse, pdfs
 
 log = logging.getLogger(__name__)
 
@@ -218,14 +218,66 @@ BIO_PROMPT = """In 2-3 short factual sentences, give the professional background
 specific person with confidence, reply exactly: UNKNOWN"""
 
 
+PROFILE_PROMPT = """This is an Indian stock-exchange filing by {company}. If it contains a profile or background of
+{name} (qualifications, previous employers and roles, current positions), summarise it in at most 60 words using
+only this filing. If the filing has no such profile for this person, return null.
+
+FILING:
+{text}"""
+
+PROFILE_SCHEMA = {"type": "object", "properties": {"profile": {"type": "string", "nullable": True}}}
+
+
+def _names_match(name, text):
+    # "Mr. Leo Puri" should find "Mr Leo Puri" and "Leo_Puri"; honorifics and initials are too common to count.
+    words = [w for w in re.findall(r"[a-z]+", name.lower()) if len(w) > 2 and w not in ("mr", "mrs", "ms", "dr", "shri", "smt")]
+    hay = re.sub(r"[^a-z]+", " ", text.lower())
+    return bool(words) and all(re.search(rf"\b{w}\b", hay) for w in words)
+
+
+def earlier_profile(name, company, history, skip_url=None):
+    """SEBI requires a profile when a director or KMP is appointed, but later filings about the same person (a
+    postal-ballot result, say) often omit it. Look back through the company's filings for the one that
+    carried it, reading at most three that name the person."""
+    tried = 0
+    for item in history:
+        if not item["attachment"] or item["attachment"] == skip_url:
+            continue
+        if not _names_match(name, f"{item['subject']} {item['attachment']}"):
+            continue
+        tried += 1
+        try:
+            body = pdfs.text(item["attachment"], max_pages=8)
+        except Exception:
+            continue
+        out = llm.call(PROFILE_PROMPT.format(company=company, name=name, text=body[:25000]),
+                       task="people_profile", as_json=True, schema=PROFILE_SCHEMA)
+        if out.get("profile"):
+            return {"profile": out["profile"], "source": {"url": item["attachment"], "date": item["filed_at"][:10]}}
+        if tried == 3:
+            break
+    return None
+
+
 def people_card(filing, company):
     body = pdfs.text(filing["attachment"], max_pages=6)
     data = llm.call(PEOPLE_PROMPT.format(text=body[:20000] or filing["subject"]),
                     task="people_extract", as_json=True)
     people = data.get("people", [])[:3]
+    history = None
     for p in people:
         if p.get("change") != "appointed":
             continue
+        if not p.get("profile") and filing.get("symbol"):
+            if history is None:
+                try:
+                    history = nse.history(filing["symbol"])
+                except Exception as e:
+                    log.info("no filing history for %s: %s", filing["symbol"], e)
+                    history = []
+            found = earlier_profile(p["name"], company, history, filing["attachment"])
+            if found:
+                p["profile"], p["profile_source"] = found["profile"], found["source"]
         bio = llm.web_bio(BIO_PROMPT.format(name=p["name"], role=p.get("role", ""),
                                             change=p["change"], company=company))
         if bio:

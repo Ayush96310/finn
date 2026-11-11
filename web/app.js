@@ -186,7 +186,9 @@ function personBlock(p) {
   return `<div class="person"><b>${esc(p.name)}</b> <span class="role">${verb} ${esc(p.role || "")}${p.effective ? " · " + esc(p.effective) : ""}</span>
     ${p.bio ? `<p>${esc(p.bio)}</p>` : p.profile ? `<p>${esc(p.profile)}</p>` : ""}
     ${p.reason && p.change !== "appointed" ? `<p>Reason given: ${esc(p.reason)}</p>` : ""}
-    <div class="src">${p.bio ? "Background: " + (src || "web") : p.profile ? "Profile from the filing" : ""}</div></div>`;
+    <div class="src">${p.bio ? "Background: " + (src || "web")
+      : p.profile_source ? `Profile from the <a href="${esc(p.profile_source.url)}" target="_blank" rel="noopener">${esc(p.profile_source.date)} filing</a>`
+      : p.profile ? "Profile from the filing" : ""}</div></div>`;
 }
 
 function glanceRow(f) {

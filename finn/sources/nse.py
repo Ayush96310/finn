@@ -79,6 +79,16 @@ def normalise(item):
     }
 
 
+def history(symbol, days=365):
+    """One company's announcements over a long window, newest first. NSE serves a year per call."""
+    end = datetime.now()
+    start = end - timedelta(days=days)
+    items = [normalise(i) for i in _fetch({"index": "equities", "symbol": symbol,
+                                           "from_date": start.strftime("%d-%m-%Y"),
+                                           "to_date": end.strftime("%d-%m-%Y")})]
+    return sorted((i for i in items if i["filed_at"]), key=lambda i: i["filed_at"], reverse=True)
+
+
 def announcements(symbols, days=7):
     end = datetime.now()
     start = end - timedelta(days=days)
