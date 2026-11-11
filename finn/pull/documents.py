@@ -25,15 +25,50 @@ def transcripts(co, n=5):
 MDA = re.compile(r"management\W{0,3}s?\W{0,3}discussion\s*(and|&)\s*analysis", re.I)
 
 
+def _printed_numbers(text):
+    # A page number is a line of its own near the top or bottom ("152\nOutlook", "\n144\nAnnual Report").
+    t = text.strip()
+    return {int(n) for part in (t[:60], t[-60:]) for n in re.findall(r"(?:^|\n)\s*(\d{1,3})\s*(?=\n|$)", part)}
+
+
+def _contents_entry(pages):
+    """The MD&A's printed page number from the contents page. Layouts differ: "Management Discussion &
+    Analysis 150" (Titan) but "189 Management Discussion and Analysis Report" (CDSL)."""
+    for text in pages[:12]:
+        for m in MDA.finditer(text):
+            before = re.search(r"(?:^|\n)(\d{1,3})\s+$", text[max(0, m.start() - 8):m.start()])
+            after = re.match(r"\W*(?:report)?\W*(\d{1,3})\b", text[m.end():m.end() + 15], re.I)
+            if before or after:
+                return int((before or after).group(1))
+    return None
+
+
 def mdna_start(pages):
-    """Index of the first page of the MD&A. Most reports repeat it as a running header, so the first run
-    of three pages that mention it; contents pages and cross-references mention it once. Failing that,
-    the first page past the front matter with it as a heading near the top."""
+    """Index of the first page of the MD&A, tried four ways:
+    a running header (three pages in a row mention it; contents pages and cross-references mention it
+    once), the contents page's entry matched to the page that prints that number (some PDFs put two
+    printed pages on one, so no fixed offset), a heading near the top of a page past the front matter."""
     run = 0
     for i, text in enumerate(pages):
         run = run + 1 if MDA.search(text) else 0
         if run == 3:
             return i - 2
+    target = _contents_entry(pages)
+    if target:
+        # Section openers rarely print their number, so interpolate from the nearest page that does,
+        # trusting a number only when nearby pages carry the numbers that should sit around it.
+        nums = [_printed_numbers(p) for p in pages]
+        best = None
+        for i in range(8, len(pages)):
+            for n in nums[i]:
+                if abs(n - target) > 60:
+                    continue
+                agree = sum(n + d in nums[i + d] for d in range(-10, 11) if d and 0 <= i + d < len(pages))
+                key = (-abs(n - target), agree)
+                if agree >= 2 and (best is None or key > best[0]):
+                    best = (key, i + target - n)
+        if best and 8 <= best[1] < len(pages):
+            return best[1]
     for i in range(8, len(pages)):
         if MDA.search(pages[i][:300]):
             return i

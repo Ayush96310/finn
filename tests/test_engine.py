@@ -236,6 +236,15 @@ def test_screener_real_page_trent():
     assert financials.trajectory(co)["annual"]["sales"][-1][0] == "Mar 2026"
 
 
+def test_annual_actuals_for_judging_promises():
+    co = screener.parse_company(_fixture("screener_trent.html"))
+    lines = "\n".join(financials.annual_actuals(co))
+    assert "operating cash flow (₹cr): Mar 2024: 1349.0, Mar 2025: 1661.0, Mar 2026: 2668.0" in lines
+    assert "working capital days: Mar 2024: 16.0, Mar 2025: 15.0, Mar 2026: -2.0" in lines
+    # Trent's FY24 estimate is negative (an asset reclassification, not capex), so it's left out.
+    assert "Mar 2024: -1284" not in lines and "Mar 2026: 3059" in lines
+
+
 def test_screener_real_page_concalls():
     co = screener.parse_company(_fixture("screener_persistent.html"))
     calls = co["documents"]["concalls"]
@@ -262,6 +271,25 @@ def test_mdna_start_skips_contents_and_cross_references():
     trent[108] = "Trent LimitedIntegrated Annual Report 2025-26\nManagement Discussion and Analysis Report\nThe Management"
     trent[168] = ("x" * 400) + "the information included in the Management Discussion \nand Analysis and Board's Report"
     assert documents.mdna_start(trent) == 108
+
+
+def test_mdna_start_from_contents_page():
+    # CDSL FY26: number before the title, no MD&A wording on the MD&A pages, numbers on alternate pages,
+    # and the section opener (pdf p.146, printed 189) carries none.
+    cdsl = ["Statutory text"] * 200
+    cdsl[2] = "Corporate Governance Report\n189 Management Discussion and \nAnalysis Report\n215 Business Respo"
+    for i in range(100, 200, 2):
+        cdsl[i - 1] = f"text\nIntegrated Annual Report  \n2025-26\n{i + 43}"
+    cdsl[145] = "Economic Overview\nGlobal Economy\nThe global economy showed stability"
+    assert documents.mdna_start(cdsl) == 145
+
+    # Kaynes FY26: number on the line after the title, a range ("78-200") just before it, and the nearest
+    # numbered pages ~38 pages away.
+    kaynes = ["text"] * 200
+    kaynes[2] = "STATUTORY REPORTS \n78-200\nManagement Discussion  \nand Analysis \n 78  \nBoard's Report \n 95  \n"
+    for i in range(70, 120, 2):
+        kaynes[i] = f"text\n{i + 45}\nAnnual Report 2025-26"
+    assert documents.mdna_start(kaynes) == 33
 
 
 def test_llm_falls_back_when_model_busy(monkeypatch):
@@ -342,6 +370,32 @@ def test_score_followup_and_low_materiality():
     # An alarm word keeps it visible whatever the model says.
     fraud = "Forensic audit finds fraud in subsidiary accounts"
     assert score.tier(score.score("litigation", "matter", fraud, 7, watch, llm_materiality="low")) == "act"
+
+
+def test_llm_retries_malformed_json_and_never_caches_it(monkeypatch):
+    from finn import db, llm
+
+    replies = iter(['{"items": [{"id": "g1" "verdict": "met"}]}', '{"items": []}'])
+
+    class Reply:
+        usage_metadata = None
+
+        def __init__(self, text):
+            self.text = text
+
+    class Models:
+        def generate_content(self, model, contents, config):
+            return Reply(next(replies))
+
+    class Client:
+        models = Models()
+
+    monkeypatch.setattr(llm, "_get_client", lambda: Client())
+    prompt = "judge these promises (malformed json test)"
+    assert llm.call(prompt, as_json=True) == {"items": []}
+    with db.session() as c:
+        cached = [r["response"] for r in c.execute("select response from llm_cache")]
+    assert '{"items": []}' in cached and not any('"g1" "verdict"' in r for r in cached)
 
 
 def test_quote_verification():

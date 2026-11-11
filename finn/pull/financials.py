@@ -163,4 +163,33 @@ def quarterly_table_for_prompt(co, n=8):
     a = series(pl, "sales", 4)
     if a:
         lines.append("\nannual revenue: " + ", ".join(f"{per}: {v}" for per, v in a))
+    lines += annual_actuals(co)
     return "\n".join(lines)
+
+
+def annual_actuals(co, years=3):
+    """Year-end figures that promises about cash, working capital and capex can be judged against."""
+    t = co["tables"]
+    fy = lambda pairs: [(p, v) for p, v in pairs if p.startswith("Mar")]  # noqa: E731
+    out = []
+    for label, table, key in (("operating cash flow (₹cr)", "cash-flow", "cfo"),
+                              ("working capital days", "ratios", "wc_days"),
+                              ("debtor days", "ratios", "debtor_days"),
+                              ("inventory days", "ratios", "inventory_days"),
+                              ("borrowings (₹cr)", "balance-sheet", "borrowings")):
+        pairs = fy(series(t.get(table), key))[-years:]
+        if pairs:
+            out.append(f"{label}: " + ", ".join(f"{p}: {v}" for p, v in pairs))
+    # Capex isn't reported directly: change in net fixed assets and CWIP, plus the year's depreciation.
+    # Acquisitions and reclassifications distort it, so negative years are dropped and the label says so.
+    assets = {p: (f or 0) + (c or 0) for (p, f), (_, c) in zip(fy(series(t.get("balance-sheet"), "fixed")),
+                                                                fy(series(t.get("balance-sheet"), "cwip")))}
+    dep = dict(series(t.get("profit-loss"), "dep"))
+    periods = sorted(assets, key=lambda p: int(p.split()[-1]))
+    capex = [(p, round(assets[p] - assets[q] + (dep.get(p) or 0)))
+             for q, p in zip(periods, periods[1:]) if dep.get(p) is not None]
+    capex = [(p, v) for p, v in capex[-years:] if v >= 0]
+    if capex:
+        out.append("capex, rough estimate from the balance sheet, includes acquisitions (₹cr): " +
+                   ", ".join(f"{p}: {v}" for p, v in capex))
+    return ["\nyear-end figures:", *out] if out else []

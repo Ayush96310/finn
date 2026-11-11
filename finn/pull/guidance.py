@@ -30,6 +30,20 @@ EXTRACT_SCHEMA = {
     "required": ["call_period", "guidance"],
 }
 
+JUDGE_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "items": {"type": "array", "items": {"type": "object", "properties": {
+            "id": {"type": "string"},
+            "verdict": {"type": "string", "enum": ["delivered", "partly", "missed", "pending", "unclear"]},
+            "evidence": {"type": "string"},
+        }, "required": ["id", "verdict", "evidence"]}},
+        "credibility": {"type": "string"},
+        "watch": {"type": "string"},
+    },
+    "required": ["items", "credibility", "watch"],
+}
+
 EXTRACT_PROMPT = """Below is an earnings-call transcript of an Indian listed company ({period} call).
 
 Extract:
@@ -124,7 +138,7 @@ def promised_vs_delivered(co, transcripts):
     judged = llm.call(JUDGE_PROMPT.format(company=co.get("name") or co["symbol"],
                                           actuals=financials.quarterly_table_for_prompt(co),
                                           claims=claims, promises=plist),
-                      smart=True, task="guidance_judge", as_json=True)
+                      smart=True, task="guidance_judge", as_json=True, schema=JUDGE_SCHEMA)
 
     verdicts = {j["id"]: j for j in judged.get("items", []) if isinstance(j, dict)}
     items = []

@@ -39,8 +39,9 @@ def _parse_json(text):
     text = text.strip()
     m = re.search(r"```(?:json)?\s*(.*?)```", text, re.S)
     if m:
-        text = m.group(1)
-    return json.loads(text)
+        text = m.group(1).strip()
+    # A complete object followed by stray text is still a usable answer.
+    return json.JSONDecoder().raw_decode(text)[0]
 
 
 def call(prompt, *, smart=False, task="misc", as_json=False, schema=None, pdf=None,
@@ -56,8 +57,12 @@ def call(prompt, *, smart=False, task="misc", as_json=False, schema=None, pdf=No
     with db.session() as c:
         hit = c.execute("select response from llm_cache where key = ?", (key,)).fetchone()
     if hit:
-        _record(model, task, 0, 0, True)
-        return _parse_json(hit["response"]) if as_json else hit["response"]
+        try:
+            out = _parse_json(hit["response"]) if as_json else hit["response"]
+            _record(model, task, 0, 0, True)
+            return out
+        except ValueError:
+            pass  # a malformed reply cached by an older version; ask again
 
     from google.genai import types
 
@@ -72,24 +77,33 @@ def call(prompt, *, smart=False, task="misc", as_json=False, schema=None, pdf=No
             cfg["response_schema"] = schema
 
     config = types.GenerateContentConfig(**cfg)
-    try:
-        resp = _generate(client, model, parts, config, max_retries)
-    except _Busy:
-        # A demo shouldn't die because one model is overloaded; the other tier usually isn't.
-        other = MODEL_FAST if smart else MODEL_SMART
-        log.warning("%s still busy after retries, falling back to %s", model, other)
-        model = other
-        resp = _generate(client, model, parts, config, 2)
+    for attempt in range(2):
+        try:
+            resp = _generate(client, model, parts, config, max_retries)
+        except _Busy:
+            # A demo shouldn't die because one model is overloaded; the other tier usually isn't.
+            other = MODEL_FAST if smart else MODEL_SMART
+            log.warning("%s still busy after retries, falling back to %s", model, other)
+            model = other
+            resp = _generate(client, model, parts, config, 2)
 
-    text = resp.text or ""
-    usage = resp.usage_metadata
-    i = getattr(usage, "prompt_token_count", 0) or 0
-    o = getattr(usage, "candidates_token_count", 0) or 0
-    with db.session() as c:
-        c.execute("insert or replace into llm_cache (key, model, response, in_tokens, out_tokens) "
-                  "values (?,?,?,?,?)", (key, model, text, i, o))
-    _record(model, task, i, o, False)
-    return _parse_json(text) if as_json else text
+        text = resp.text or ""
+        usage = resp.usage_metadata
+        _record(model, task, getattr(usage, "prompt_token_count", 0) or 0,
+                getattr(usage, "candidates_token_count", 0) or 0, False)
+        try:
+            out = _parse_json(text) if as_json else text
+        except ValueError:
+            # Long JSON replies occasionally come back malformed; one more try usually fixes it.
+            log.warning("%s returned malformed JSON for %s (attempt %d)", model, task, attempt + 1)
+            if attempt:
+                raise
+            continue
+        with db.session() as c:
+            c.execute("insert or replace into llm_cache (key, model, response, in_tokens, out_tokens) "
+                      "values (?,?,?,?,?)", (key, model, text, getattr(usage, "prompt_token_count", 0) or 0,
+                                             getattr(usage, "candidates_token_count", 0) or 0))
+        return out
 
 
 class _Busy(RuntimeError):
@@ -150,13 +164,17 @@ def usage_summary():
             "select model, task, sum(in_tokens) i, sum(out_tokens) o, "
             "sum(case when cached = 0 then 1 else 0 end) calls, sum(cached) hits "
             "from llm_usage group by model, task order by i desc").fetchall()
-    out, total = [], 0.0
+    out, total, unpriced = [], 0.0, 0
     for r in rows:
-        pin, pout = PRICES.get(r["model"], (0.3, 2.5))
-        cost = (r["i"] or 0) / 1e6 * pin + (r["o"] or 0) / 1e6 * pout
-        total += cost
-        out.append({**dict(r), "usd": round(cost, 4)})
-    return {"rows": out, "usd_total": round(total, 4)}
+        price = PRICES.get(r["model"])
+        cost = None
+        if price:
+            cost = round((r["i"] or 0) / 1e6 * price[0] + (r["o"] or 0) / 1e6 * price[1], 4)
+            total += cost
+        elif r["calls"]:
+            unpriced += r["calls"]
+        out.append({**dict(r), "usd": cost})
+    return {"rows": out, "usd_total": round(total, 4), "unpriced_calls": unpriced}
 
 
 def available():

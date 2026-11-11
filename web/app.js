@@ -427,7 +427,7 @@ async function openSettings() {
     <div class="field"><label>Alert me on filings about</label>
       <div class="toggles">${watchable.map((k) => `<button class="chip ${s.watch.includes(k) ? "on" : ""}" data-w="${k}">${CAT[k]}</button>`).join("")}</div></div>
     <button class="save" id="save">Save</button>
-    ${u && u.rows.length ? `<div class="usage"><div><span>Model spend so far</span><span>$${u.usd_total.toFixed(3)}</span></div>
+    ${u && u.rows.length ? `<div class="usage"><div><span>Model spend so far${u.unpriced_calls ? " (priced calls only)" : ""}</span><span>$${u.usd_total.toFixed(3)}</span></div>
       ${u.rows.slice(0, 6).map((r) => `<div><span>${esc(r.task)} · ${esc(r.model.replace("gemini-", ""))}</span><span>${r.calls} calls · ${r.hits} cached</span></div>`).join("")}</div>` : ""}
   </div>`;
   sheet.hidden = false;

@@ -10,14 +10,12 @@ Build FINN, a mobile-first financial investment agent for a mock portfolio of 15
 
 ## Decisions already made (don't relitigate without reason)
 - Stack: Python 3.10+ / FastAPI backend, vanilla JS PWA in `web/` (no build step), SQLite store.
-- LLM: Gemini free tier via `google-genai`. FAST model (`gemini-3.5-flash-lite`) for extraction, SMART model (`gemini-3.5-flash`) only for judging guidance and writing the thesis (the 2.5 models the build started with are closed to new API keys as of Nov 2026). If one model is overloaded after retries, `llm.call` falls back to the other tier. Both can be overridden with `FINN_MODEL_FAST` / `FINN_MODEL_SMART`.
+- LLM: Gemini free tier via `google-genai`. FAST model (`gemini-3.5-flash-lite`) for extraction, SMART model (`gemini-3.8-flash`) only for judging guidance and writing the thesis (the 2.5 models the build started with are closed to new API keys as of Nov 2026, and 3.5-flash's free daily quota ran out in a day of research runs). If one model is overloaded after retries, `llm.call` falls back to the other tier. Both can be overridden with `FINN_MODEL_FAST` / `FINN_MODEL_SMART`.
 - Depth: the push digest plus promised-vs-delivered. Other research lenses are lighter.
 - Ingestion runs locally (NSE blocks cloud IPs); the deployed app (Render, `render.yaml`) serves the committed `data/finn.db`. Research on new tickers can run live on the server.
 
-## Current state
-Built and committed, one commit. 21 tests pass (`pytest -q`). The UI has been verified at 390px width against a FICTIONAL sample DB (`scripts/seed_sample.py`, which writes to `data-sample/` and shows a sample-data banner).
-
-**NOT yet run against live data.** The original build environment had no network access to NSE, Yahoo, screener.in or Gemini. Every fetcher and prompt was written from known formats and has never been executed for real. Your first job is to make the live path work.
+## Current state (11 Nov 2026)
+Tasks 1 and 2 below are done: the live path runs end to end on this Windows laptop (venv in `.venv`, key in a gitignored `.env`), and tiers were tuned on a real week of filings. 55 tests pass, many built from real NSE strings, saved screener pages and hand-checked results filings (`tests/fixtures/`). WRITEUP.md lists what real data changed and the honest gaps. Remaining: deploy (task 3) and polish (task 4).
 
 ### Map
 - `finn/sources/prices.py`: yfinance EOD (`SYMBOL.NS`); `day_stats`, `move_on` (market reaction to a filing).

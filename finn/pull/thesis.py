@@ -31,6 +31,27 @@ LATEST EARNINGS CALL ({call}):
 {transcript}"""
 
 
+THESIS_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "business": {"type": "object", "properties": {
+            "one_liner": {"type": "string"},
+            "segments": {"type": "array", "items": {"type": "object", "properties": {
+                "name": {"type": "string"}, "share": {"type": "string", "nullable": True},
+                "note": {"type": "string"}}, "required": ["name", "note"]}},
+            "moat": {"type": "string", "nullable": True},
+        }, "required": ["one_liner", "segments"]},
+        "narrative_vs_numbers": {"type": "array", "items": {"type": "object", "properties": {
+            "claim": {"type": "string"}, "numbers_say": {"type": "string"},
+            "agrees": {"type": "boolean"}, "cite": {"type": "string"}},
+            "required": ["claim", "numbers_say", "agrees", "cite"]}},
+        "bull": {"type": "array", "items": {"type": "string"}},
+        "bear": {"type": "array", "items": {"type": "string"}},
+    },
+    "required": ["business", "narrative_vs_numbers", "bull", "bear"],
+}
+
+
 def numbers_brief(snap, traj, bs, cash):
     def fmt(pairs):
         return ", ".join(f"{p}: {v}" for p, v in pairs[-5:])
@@ -54,4 +75,4 @@ def build(co, numbers, ar, latest_call):
         company=co.get("name") or co["symbol"], numbers=numbers,
         ar=(ar["text"][:70000] if ar else "(not available)"),
         call=call, transcript=(latest_call["text"][:60000] if latest_call else "(not available)")),
-        smart=True, task="thesis", as_json=True)
+        smart=True, task="thesis", as_json=True, schema=THESIS_SCHEMA)

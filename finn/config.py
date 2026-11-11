@@ -23,14 +23,16 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 
 # Two tiers. Bulk extraction goes to FAST, anything that has to weigh evidence goes to SMART.
 # Override with env vars when Google renames things.
-# The 2.5 models are closed to new API keys as of Nov 2026.
+# The 2.5 models are closed to new API keys as of Nov 2026, and 3.5-flash's free daily quota ran out
+# within one day of research runs, so SMART uses 3.8-flash (the model Google's 404 recommended).
 MODEL_FAST = os.getenv("FINN_MODEL_FAST", "gemini-3.5-flash-lite")
-MODEL_SMART = os.getenv("FINN_MODEL_SMART", "gemini-3.5-flash")
+MODEL_SMART = os.getenv("FINN_MODEL_SMART", "gemini-3.8-flash")
 
 # USD per 1M tokens (input, output) - only used to show what the free-tier usage would have cost.
+# Paid-tier list prices from ai.google.dev/gemini-api/docs/pricing, checked 11 Nov 2026. The flash models
+# had no listed price that day, so their calls are counted but not priced rather than guessed at.
 PRICES = {
-    MODEL_FAST: (0.10, 0.40),
-    MODEL_SMART: (0.30, 2.50),
+    "gemini-3.5-flash-lite": (0.30, 2.50),
 }
 
 # Set this to get real phone notifications through ntfy.sh (free, no account).
