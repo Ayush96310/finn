@@ -30,9 +30,10 @@ ROUTINE_HINT = re.compile(r"intimation|clarification sought|reminder|corrigendum
 TIERS = (("act", 65), ("glance", 35), ("routine", 0))
 
 
-def score(category, subtype, subject, weight, watched, reaction=None, llm_materiality=None):
+def score(category, subtype, subject, weight, watched, reaction=None, llm_materiality=None, followup=False):
     s = BASE.get((category, subtype), 25)
-    if ALARM.search(subject or ""):
+    alarm = bool(ALARM.search(subject or ""))
+    if alarm:
         s += 25
     if ROUTINE_HINT.search(subject or "") and category != "results":
         s -= 10
@@ -41,10 +42,13 @@ def score(category, subtype, subject, weight, watched, reaction=None, llm_materi
     s += 8 if weight >= 7 else 4 if weight >= 5 else 0
     if reaction and (abs(reaction["change_pct"]) >= 3 or reaction["vol_ratio"] >= 2):
         s += 12
+    if followup:
+        s -= 20
     if llm_materiality == "high":
         s += 10
-    elif llm_materiality == "low":
-        s -= 15
+    elif llm_materiality == "low" and not alarm:
+        # The model read the document and called it paperwork; a watched category shouldn't overrule that.
+        s = min(s - 15, 30)
     return max(0, min(100, s))
 
 

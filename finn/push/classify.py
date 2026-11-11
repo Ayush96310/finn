@@ -70,9 +70,9 @@ _COMPILED = [(c, s, re.compile(p, re.I)) for c, s, p in RULES]
 
 SENIOR = re.compile(r"\b(ceo|cfo|coo|chief executive|chief financial|chief operating|managing director|"
                     r"\bmd\b|whole[- ]time director|(?<!non-)(?<!non- )(?<!non )executive director|"
-                    r"chairman|chairperson)\b", re.I)
+                    r"(?<!vice-)(?<!vice )(?<!vice- )chair(man|person))\b", re.I)
 MINOR_ROLE = re.compile(r"company secretary|compliance officer|auditor|senior management personnel|"
-                        r"independent director", re.I)
+                        r"(?<!non-)(?<!non- )(?<!non )independent director", re.I)
 
 
 NSE_MEET = re.compile(r"analysts/institutional investor meet/con\. call updates", re.I)

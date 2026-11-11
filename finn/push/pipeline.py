@@ -8,6 +8,9 @@ from . import alerts, classify, digest, enrich, score
 log = logging.getLogger(__name__)
 
 SUMMARY_BATCH = 8
+# Categories where a second filing of the same kind is usually the same event moving on. Catch-alls like
+# press_release/news are excluded: two of those are rarely related.
+EVENT_CATEGORIES = {"M&A", "fund_raise", "litigation", "credit_rating", "capex", "pledging", "insider_trading"}
 
 
 def ingest(days):
@@ -27,6 +30,32 @@ def ingest(days):
     return added, len(items)
 
 
+def context(f):
+    """Judge a filing against the company's other recent filings: the market reaction is credited only to
+    the most material filing priced in that session, and a repeat of the same kind of filing within ten
+    days (a deal's agreement, then its completion) is a follow-up."""
+    with db.session() as c:
+        others = [dict(r) for r in c.execute(
+            "select id, symbol, filed_at, category, subtype from filings where symbol = ? and id != ? "
+            "and filed_at between datetime(?, '-10 days') and datetime(?, '+4 days')",
+            (f["symbol"], f["id"], f["filed_at"], f["filed_at"]))]
+    followup = f["category"] in EVENT_CATEGORIES and any(
+        (o["category"], o["subtype"]) == (f["category"], f["subtype"]) and o["filed_at"] < f["filed_at"]
+        for o in others)
+    reaction = digest.reaction_for(f)
+    if reaction:
+        rank = lambda x: (score.BASE.get((x["category"], x["subtype"]), 25), x["filed_at"] < f["filed_at"])  # noqa: E731
+        mine = rank(f)
+        for o in others:
+            theirs = rank(o)
+            if theirs[0] > mine[0] or (theirs[0] == mine[0] and theirs[1]):
+                r = digest.reaction_for(o)
+                if r and r["date"] == reaction["date"]:
+                    reaction = None
+                    break
+    return {"reaction": reaction, "followup": followup}
+
+
 def rescore_with_reactions():
     """Second pass once prices are in: a filing the market reacted to moves up a tier."""
     cfg = settings.get()
@@ -34,9 +63,8 @@ def rescore_with_reactions():
         rows = [dict(r) for r in c.execute(
             "select id, symbol, filed_at, category, subtype, subject from filings where enriched = 0")]
     for f in rows:
-        cat, sub = f["category"], f["subtype"]
-        s = score.score(cat, sub, f["subject"], portfolio.weight_of(f["symbol"]), cfg["watch"],
-                        reaction=digest.reaction_for(f))
+        s = score.score(f["category"], f["subtype"], f["subject"], portfolio.weight_of(f["symbol"]),
+                        cfg["watch"], **context(f))
         with db.session() as c:
             c.execute("update filings set score = ?, tier = ? where id = ?", (s, score.tier(s), f["id"]))
 
@@ -92,7 +120,7 @@ def enrich_pending(limit=40):
                 continue
             cat, sub = f["category"], f["subtype"]
             s = score.score(cat, sub, f["subject"], portfolio.weight_of(f["symbol"]), cfg["watch"],
-                            reaction=digest.reaction_for(f), llm_materiality=o.get("materiality"))
+                            llm_materiality=o.get("materiality"), **context(f))
             enrich.save_card(f["id"], summary=o.get("line"), score=s, tier=score.tier(s))
     return len(rows)
 

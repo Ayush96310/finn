@@ -1,8 +1,17 @@
 import logging
+from datetime import datetime, timedelta, timezone
 
 from .. import db
 
 log = logging.getLogger(__name__)
+IST = timezone(timedelta(hours=5, minutes=30))
+
+
+def last_complete_session(now=None):
+    """Yahoo serves today's bar while the market is still open; a half-day's volume would read as a
+    collapse against the 20-day average. NSE closes at 15:30 IST, so count today only after 15:45."""
+    now = now or datetime.now(IST)
+    return now.date() if (now.hour, now.minute) >= (15, 45) else now.date() - timedelta(days=1)
 
 
 def refresh(symbols, period="6mo"):
@@ -12,6 +21,7 @@ def refresh(symbols, period="6mo"):
     frame = yf.download(tickers, period=period, interval="1d", group_by="ticker",
                         auto_adjust=False, progress=False, threads=True)
     rows = []
+    cutoff = last_complete_session().isoformat()
     for sym, tk in zip(symbols, tickers):
         try:
             df = frame[tk] if len(tickers) > 1 else frame
@@ -20,9 +30,12 @@ def refresh(symbols, period="6mo"):
             continue
         df = df.dropna(subset=["Close"])
         for date, r in df.iterrows():
+            if date.strftime("%Y-%m-%d") > cutoff:
+                continue
             rows.append((sym, date.strftime("%Y-%m-%d"), float(r["Open"]), float(r["High"]),
                          float(r["Low"]), float(r["Close"]), int(r["Volume"] or 0)))
     with db.session() as c:
+        c.execute("delete from prices where date > ?", (cutoff,))  # intraday bars from an earlier run
         c.executemany("insert or replace into prices values (?,?,?,?,?,?,?)", rows)
     return len(rows)
 

@@ -47,6 +47,7 @@ from finn.sources import screener  # noqa: E402
     ("Change in Company Secretary/Compliance Officer", "BLS Polymers Limited has informed the Exchange about Change in Company Secretary/Compliance Officer", "management_change", "minor"),
     ("Cessation", "Chennai Petroleum Corporation Limited has informed the Exchange regarding Cessation of Mr Inderjeet as Non- Executive Director of the company w.e.f. November 06, 2026.", "management_change", "change"),
     ("Cessation", "Veegaland Developers Limited has informed the Exchange regarding Cessation of Mr. Kurian Thomas as Executive Director of the company w.e.f. November 09, 2026.", "management_change", "senior"),
+    ("Retirement", "Titan Company Limited has informed the Exchange about Retirement of Mr. Noel N. Tata as Director and Vice-Chairman","management_change", "change"),
     ("General Updates", "Titan Company Limited has informed the Exchange about Redemption of Commercial Paper", "unclassified", "routine"),
     ("General Updates", "Titan Company Limited has informed the Exchange about Certificate pursuant to SEBI Circular no. SEBI/HO/DDHS/P/CIR/2021/613 dated August 10, 2021", "unclassified", "routine"),
     ("Updates", "Dixon Technologies (India) Limited has informed the Exchange regarding 'Change in Corporate Office Address of RTA with effect from 01st December 2026'.","unclassified", "routine"),
@@ -285,6 +286,62 @@ def test_llm_falls_back_when_model_busy(monkeypatch):
     monkeypatch.setattr(llm.time, "sleep", lambda s: None)
     assert llm.call("judge these promises", smart=True, as_json=True) == {"ok": 1}
     assert tried == [llm.MODEL_SMART] * 4 + [llm.MODEL_FAST]
+
+
+def test_last_complete_session_skips_open_market():
+    from datetime import datetime
+    from finn.sources import prices
+
+    ist = prices.IST
+    assert str(prices.last_complete_session(datetime(2026, 11, 11, 12, 17, tzinfo=ist))) == "2026-11-10"
+    assert str(prices.last_complete_session(datetime(2026, 11, 11, 16, 0, tzinfo=ist))) == "2026-11-11"
+
+
+def test_price_alerts_cover_recent_sessions_not_just_the_last():
+    from datetime import date, timedelta
+    from finn import db
+    from finn.push import alerts
+
+    sym = "ACMETEST"
+    rows, day = [], date(2026, 10, 1)
+    for i in range(30):
+        spike = i == 26  # three sessions before the latest
+        rows.append((sym, (day + timedelta(days=i)).isoformat(), 100, 100, 100,
+                     106.0 if spike else 100.0, 500_000 if spike else 100_000))
+    with db.session() as c:
+        c.executemany("insert or replace into prices values (?,?,?,?,?,?,?)", rows)
+        c.execute("delete from alerts")
+    db.kv_set("portfolio", [{"symbol": sym, "name": "Acme", "sector": "Test", "weight": 5}])
+    try:
+        ids = alerts.evaluate()
+    finally:
+        with db.session() as c:
+            c.execute("delete from kv where key = 'portfolio'")
+    spike_day = (day + timedelta(days=26)).isoformat()
+    assert f"{sym}:{spike_day}:price" in ids and f"{sym}:{spike_day}:volume" in ids
+
+
+def test_seniority_from_people_card_roles():
+    from finn.push import classify
+
+    assert classify.seniority("Non-Executive, Non-Independent Director and Vice-Chairman") == "change"
+    assert classify.seniority("Chief Compliance Officer") == "minor"
+    assert classify.seniority("Independent Director") == "minor"
+    assert classify.seniority("Chairman and Independent Director") == "senior"
+    assert classify.seniority("Managing Director & CEO") == "senior"
+
+
+def test_score_followup_and_low_materiality():
+    watch = ["litigation", "M&A"]
+    first = score.score("M&A", "deal", "Signing of share purchase agreement", 3, watch)
+    repeat = score.score("M&A", "deal", "Completion of acquisition", 3, watch, followup=True)
+    assert score.tier(first) == "act" and score.tier(repeat) == "glance"
+    # Bharti's Rs 1.6 lakh DoT penalty: watched category, big holding, but the model called it paperwork.
+    penalty = "Received a penalty notice of Rs. 1,60,000 from DoT Jammu and Kashmir LSA"
+    assert score.tier(score.score("litigation", "matter", penalty, 7, watch, llm_materiality="low")) == "routine"
+    # An alarm word keeps it visible whatever the model says.
+    fraud = "Forensic audit finds fraud in subsidiary accounts"
+    assert score.tier(score.score("litigation", "matter", fraud, 7, watch, llm_materiality="low")) == "act"
 
 
 def test_quote_verification():
