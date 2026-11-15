@@ -27,6 +27,7 @@ RESULTS_SCHEMA = {
         "other_income": LINE,
         "total_income": LINE,
         "total_expenses": LINE,
+        "share_of_associates": LINE,
         "finance_costs": LINE,
         "depreciation": LINE,
         "exceptional_items": LINE,
@@ -48,6 +49,7 @@ Rules:
 - revenue = Revenue from operations (for banks: Interest earned, and set format = "bank").
 - total_income = the "Total income" line exactly as printed (it may include extra lines such as fair value gains).
 - total_expenses = the "Total expenses" (banks: "Total expenditure") line as printed.
+- share_of_associates = "Share of profit/(loss) of associates and joint ventures" as printed (negative if a loss); null if absent.
 - pbt = Profit before tax (after exceptional items). pat = Net profit for the period (total, before OCI).
 - exceptional_items: as printed, positive if it adds to profit, negative if a loss. null if the line does not exist.
 - operating_profit_before_provisions and provisions (other than tax, and contingencies): banks/NBFCs only.
@@ -88,7 +90,14 @@ def reconcile(raw):
         if pbt is None or a is None or b is None:
             continue
         checked.append(p)
-        # A company's associates' share sits between these lines; nothing does for a bank.
+        if not bank:
+            a += v("share_of_associates", p) or 0
+            # Some statements (Bharti's) print "Total expenses" before depreciation and finance costs and take
+            # those off below a subtotal; use that layout when it fits better.
+            below = (v("depreciation", p) or 0) + (v("finance_costs", p) or 0)
+            if below and abs(a - b - below - pbt) < abs(a - b - pbt):
+                b += below
+        # Rounding (and an associates' share the model missed) sits between these lines; nothing does for a bank.
         tol = max(0.005 * abs(pbt), 1) if bank else max(0.03 * abs(pbt), 0.001 * abs(a), 0.5)
         ex = exc.get(p) or 0
         if ex and abs(a - b - ex - pbt) < abs(a - b + ex - pbt):
@@ -162,8 +171,10 @@ def _ebitda(raw, p, get, is_bank):
         return None
     other = get("other_income", p) or 0
     exceptional = get("exceptional_items", p) or 0
-    # Operating EBITDA: strip financing, D&A, treasury income, non-operating gains and one-offs.
-    return round(pbt + fin + dep - other - (_non_operating(get, p) or 0) - exceptional, 2)
+    associates = get("share_of_associates", p) or 0
+    # Operating EBITDA: strip financing, D&A, treasury income, non-operating gains, one-offs and the profit
+    # of joint ventures and associates (earned by other companies, then added below the expense lines).
+    return round(pbt + fin + dep - other - (_non_operating(get, p) or 0) - exceptional - associates, 2)
 
 
 def _non_operating(get, p):

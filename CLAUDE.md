@@ -19,12 +19,12 @@ Tasks 1-3 below are done and the app is submitted-ready. The live path runs on t
 
 - **Live:** https://finn-l0d0.onrender.com (Render free tier, Blueprint from `render.yaml`, `GEMINI_API_KEY` set in Render). Render's GitHub app is installed on this repo only, so **every push to master auto-deploys** in about a minute.
 - **Repo:** https://github.com/Ayush96310/finn (public).
-- **Data:** `data/finn.db` is committed: prices, a week of filings and alerts as of 11 Nov 12:35, and pre-built research for KAYNES, POLYCAB, PERSISTENT, CDSL, TITAN, HDFCBANK, DIXON and TRENT. Research on other tickers runs live on the server (written to Render's ephemeral disk).
-- **WRITEUP.md** is the final covering note. Its numbers (5 items in "Needs you" for the week, Kaynes's three misses, spend so far) must be rechecked if the data is refreshed.
+- **Data:** `data/finn.db` is committed: prices, a week of filings and alerts as of 15 Nov 13:07, and pre-built research for KAYNES, POLYCAB, PERSISTENT, CDSL, TITAN, HDFCBANK, DIXON and TRENT. Research on other tickers runs live on the server (written to Render's ephemeral disk).
+- **WRITEUP.md** is the final covering note. Its numbers (3 items in "Needs you" for the 3-day default, Kaynes's three misses, spend so far) must be rechecked if the data is refreshed.
 - **AI build history** for this session was exported to the user's Downloads folder on 11 Nov.
 
 **Remaining before the 15 Nov deadline:**
-1. On 14-15 Nov after 15:45 IST: `python -m finn refresh --days 7` (must run locally; NSE blocks cloud IPs), recheck WRITEUP.md's numbers, commit `data/finn.db`, push.
+1. (Done 15 Nov 13:07.) On 14-15 Nov after 15:45 IST: `python -m finn refresh --days 7` (must run locally; NSE blocks cloud IPs), recheck WRITEUP.md's numbers, commit `data/finn.db`, push.
 2. The user submits: live link, repo link, chat exports, WRITEUP.md.
 
 Known gaps (in WRITEUP.md): web search grounding is 429 on the free tier; HDFC Bank's MD&A isn't located; Trent has no transcripts on screener. Research links use `#/r/SYMBOL`.

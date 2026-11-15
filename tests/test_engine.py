@@ -136,6 +136,35 @@ def test_reconcile_catches_shifted_bank_columns():
     assert enrich.reconcile(missing) == (["current", "previous", "year_ago"], ["current", "year_ago"])
 
 
+def test_reconcile_counts_share_of_joint_ventures():
+    # HAL Q2 FY27 consolidated, Rs lakh: total income - total expenses falls Rs 96.5 cr short of PBT
+    # unless the joint ventures' share is counted.
+    raw = {"format": "standard",
+           "total_income": {"current": 860155}, "total_expenses": {"current": 613202},
+           "pbt": {"current": 256605}}
+    assert enrich.reconcile(dict(raw)) == (["current"], ["current"])
+    assert enrich.reconcile({**raw, "share_of_associates": {"current": 9652}}) == (["current"], [])
+
+    # ...and that share is someone else's operating profit, so it stays out of EBITDA.
+    card = enrich.build_results_card({
+        **raw, "unit": "Rs. in Lakhs", "basis": "consolidated",
+        "revenue": {"current": 761325}, "other_income": {"current": 98830},
+        "finance_costs": {"current": 36}, "depreciation": {"current": 25788},
+        "share_of_associates": {"current": 9652}, "pat": {"current": 193564}})
+    assert card["metrics"][1]["current"] == 1739.47   # 2566.05 + 0.36 + 257.88 - 988.30 - 96.52
+
+
+def test_reconcile_accepts_total_expenses_before_depreciation():
+    # Bharti Airtel Q2 FY27 consolidated, Rs million: "Total expenses" excludes D&A and finance costs, which are
+    # taken off below a "profit before depreciation, amortisation, finance costs..." subtotal.
+    raw = {"format": "standard",
+           "total_income": {"current": 617544}, "total_expenses": {"current": 259316},
+           "depreciation": {"current": 146171}, "finance_costs": {"current": 57073},
+           "share_of_associates": {"current": -1098}, "exceptional_items": {"current": 1802},
+           "pbt": {"current": 154280}}
+    assert enrich.reconcile(raw) == (["current"], [])
+
+
 def test_reconcile_fixes_exceptional_printed_as_expense():
     # Titan FY26 consolidated: "X. Profit before tax (VIII - IX)" with IX printed as a positive 101.
     raw = {"format": "standard",
